@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crates-io-release
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check release tag and package metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          package = tomllib.loads(Path("Cargo.toml").read_text())["package"]
+          expected = f"v{package['version']}"
+          if os.environ["RELEASE_TAG"] != expected:
+              raise SystemExit(f"Release tag must be {expected}")
+          if not (package.get("license") or package.get("license-file")):
+              raise SystemExit("Set license or license-file in Cargo.toml before publishing")
+          PY
+      - name: Require the release commit to be on main
+        run: git merge-base --is-ancestor HEAD origin/main
+
+  ci:
+    needs: validate
+    uses: ./.github/workflows/rust.yml
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify the package
+        run: cargo publish --dry-run --locked
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "::error::Set the CARGO_REGISTRY_TOKEN repository secret before publishing"
+            exit 1
+          fi
+          cargo publish --locked
