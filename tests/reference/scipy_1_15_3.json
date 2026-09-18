@@ -1,0 +1,151 @@
+{
+  "best1_zero_mutation": {
+    "x": [
+      0.25,
+      0.25
+    ],
+    "fun": 0.0,
+    "population": [
+      [
+        0.25,
+        0.25
+      ],
+      [
+        0.25,
+        0.25
+      ],
+      [
+        0.25,
+        0.25
+      ],
+      [
+        0.25,
+        0.25
+      ],
+      [
+        0.25,
+        0.25
+      ]
+    ],
+    "energies": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "generations": 1,
+    "evaluations": 10,
+    "success": true
+  },
+  "initialization_clipping": {
+    "x": [
+      0.5,
+      0.5
+    ],
+    "fun": 0.5,
+    "population": [
+      [
+        0.5,
+        0.5
+      ],
+      [
+        0.25,
+        1.0
+      ],
+      [
+        0.75,
+        0.0
+      ],
+      [
+        1.0,
+        0.75
+      ],
+      [
+        1.0,
+        1.0
+      ]
+    ],
+    "energies": [
+      0.5,
+      1.0625,
+      0.5625,
+      1.5625,
+      2.0
+    ],
+    "generations": 0,
+    "evaluations": 5,
+    "success": false
+  },
+  "mixed_fixed_dimensions": {
+    "x": [
+      0.0,
+      3.0,
+      1.0
+    ],
+    "fun": 0.125,
+    "population": [
+      [
+        0.0,
+        3.0,
+        1.0
+      ],
+      [
+        0.0,
+        3.0,
+        1.0
+      ],
+      [
+        0.0,
+        3.0,
+        1.0
+      ],
+      [
+        0.0,
+        3.0,
+        1.0
+      ],
+      [
+        0.0,
+        3.0,
+        1.0
+      ]
+    ],
+    "energies": [
+      0.125,
+      0.125,
+      0.125,
+      0.125,
+      0.125
+    ],
+    "generations": 1,
+    "evaluations": 10,
+    "success": true
+  },
+  "convergence_boundary": [
+    {
+      "atol": 1.9999999999999998,
+      "mean": 1.0,
+      "std": 2.0,
+      "criterion": false,
+      "public_success": false,
+      "public_nit": 0
+    },
+    {
+      "atol": 2.0,
+      "mean": 1.0,
+      "std": 2.0,
+      "criterion": true,
+      "public_success": false,
+      "public_nit": 0
+    },
+    {
+      "atol": 2.0000000000000004,
+      "mean": 1.0,
+      "std": 2.0,
+      "criterion": true,
+      "public_success": false,
+      "public_nit": 0
+    }
+  ]
+}

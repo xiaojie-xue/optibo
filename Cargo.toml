@@ -1,0 +1,21 @@
+[package]
+name = "optibo"
+description = "Feature-gated numerical optimization algorithms in safe Rust"
+edition = "2021"
+rust-version = "1.80"
+version = "0.1.0"
+
+[features]
+default = ["de"]
+de = []
+parallel = ["de", "dep:rayon"]
+
+[dependencies]
+rayon = { version = "1.12", optional = true }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[example]]
+name = "planar_calibration"
+required-features = ["de"]

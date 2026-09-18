@@ -1,0 +1,28 @@
+name: Rust
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        args:
+          - ""
+          - "--no-default-features"
+          - "--no-default-features --features de"
+          - "--no-default-features --features parallel"
+          - "--all-features"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo test --locked ${{ matrix.args }}
+      - run: cargo clippy --all-targets --locked ${{ matrix.args }} -- -D warnings
