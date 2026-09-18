@@ -4,6 +4,13 @@ description = "Feature-gated numerical optimization algorithms in safe Rust"
 edition = "2021"
 rust-version = "1.80"
 version = "0.1.0"
+license = "MIT"
+repository = "https://github.com/xiaojie-xue/optibo"
+readme = "README.md"
+documentation = "https://docs.rs/optibo"
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = ["de"]
