@@ -48,6 +48,7 @@ jobs:
   publish:
     needs: ci
     runs-on: ubuntu-latest
+    environment: crate-io
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -55,10 +56,10 @@ jobs:
         run: cargo publish --dry-run --locked
       - name: Publish to crates.io
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
         run: |
           if [ -z "$CARGO_REGISTRY_TOKEN" ]; then
-            echo "::error::Set the CARGO_REGISTRY_TOKEN repository secret before publishing"
+            echo "::error::Set the CRATES_IO_TOKEN secret in the publishing environment before publishing"
             exit 1
           fi
           cargo publish --locked
