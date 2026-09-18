@@ -30,7 +30,7 @@ Add Optibo from crates.io to your `Cargo.toml`. Differential evolution is enable
 
 ```toml
 [dependencies]
-optibo = "0.1.0"
+optibo = "0.1.1"
 ```
 
 ```rust
@@ -78,7 +78,7 @@ Parallel evaluation requires two steps:
 
    ```toml
    [dependencies]
-   optibo = { version = "0.1.0", features = ["parallel"] }
+   optibo = { version = "0.1.1", features = ["parallel"] }
    ```
 
 2. Set `Config::parallel = true` when configuring the solver:

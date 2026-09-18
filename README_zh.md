@@ -28,7 +28,7 @@ Optibo 是一组持续扩展的 Rust 优化库。目前的 Differential Evolutio
 
 ```toml
 [dependencies]
-optibo = "0.1.0"
+optibo = "0.1.1"
 ```
 
 ```rust
@@ -74,7 +74,7 @@ fn main() -> Result<(), optibo::de::DeError> {
 
    ```toml
    [dependencies]
-   optibo = { version = "0.1.0", features = ["parallel"] }
+   optibo = { version = "0.1.1", features = ["parallel"] }
    ```
 
 2. 求解时设置 `Config::parallel = true`：
