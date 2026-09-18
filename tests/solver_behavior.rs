@@ -533,3 +533,100 @@ fn invalid_trials_never_replace_even_an_invalid_existing_member() {
     assert_eq!(result.generations, 3);
     assert!(matches!(result.termination, Termination::MaxGenerations));
 }
+
+#[test]
+fn wide_bounds_preserve_exact_seeds_in_evaluations_callbacks_and_results() {
+    for parallel in [false, cfg!(feature = "parallel")] {
+        let config = Config {
+            init: Initialization::Population(vec![vec![3.0], vec![5.0], vec![7.0], vec![9.0]]),
+            initial_guess: Some(vec![1.0]),
+            max_generations: 3,
+            parallel,
+            ..run_config()
+        };
+        let result = minimize_with_callback(
+            &[(-1e16, 1e16)],
+            &config,
+            |x| (x[0] - 1.0).abs(),
+            |progress| {
+                assert_eq!(progress.x, &[1.0]);
+                assert_eq!(progress.fun, 0.0);
+                Control::Continue
+            },
+        )
+        .unwrap();
+        assert_eq!(result.x, [1.0]);
+        assert_eq!(result.fun, 0.0);
+        for (row, cost) in result.population.iter().zip(&result.population_energies) {
+            assert_eq!((row[0] - 1.0).abs(), *cost);
+        }
+    }
+}
+
+#[test]
+fn batch_receives_exact_clipped_custom_population_with_fixed_coordinates() {
+    struct ExactSeeds;
+    impl BatchObjective for ExactSeeds {
+        fn evaluate_batch(
+            &self,
+            candidates: &[f64],
+            dimension: usize,
+            costs: &mut [f64],
+        ) -> Result<(), EvaluationError> {
+            assert_eq!(dimension, 2);
+            assert_eq!(candidates, &[1.0, 2.0, 3.0, 2.0, 5.0, 2.0, 1e16, 2.0]);
+            for (row, cost) in candidates.chunks_exact(dimension).zip(costs) {
+                *cost = row[0];
+            }
+            Ok(())
+        }
+    }
+    let config = Config {
+        init: Initialization::Population(vec![
+            vec![1.0, -9.0],
+            vec![3.0, 9.0],
+            vec![5.0, 2.0],
+            vec![2e16, 2.0],
+        ]),
+        max_generations: 0,
+        ..run_config()
+    };
+    let result = minimize_batch(&[(-1e16, 1e16), (2.0, 2.0)], &config, &ExactSeeds).unwrap();
+    assert_eq!(
+        result.population,
+        vec![
+            vec![1.0, 2.0],
+            vec![3.0, 2.0],
+            vec![5.0, 2.0],
+            vec![1e16, 2.0]
+        ]
+    );
+}
+
+#[test]
+fn reused_cost_buffer_rejects_outputs_omitted_after_initialization() {
+    struct InitialOnly(AtomicUsize);
+    impl BatchObjective for InitialOnly {
+        fn evaluate_batch(
+            &self,
+            _: &[f64],
+            _: usize,
+            costs: &mut [f64],
+        ) -> Result<(), EvaluationError> {
+            assert!(costs.iter().all(|value| value.is_nan()));
+            if self.0.fetch_add(1, Ordering::Relaxed) == 0 {
+                costs.copy_from_slice(&[1.0, 2.0, 3.0, 4.0]);
+            }
+            Ok(())
+        }
+    }
+    let config = Config {
+        population_size: 4,
+        max_evaluations: 14,
+        ..run_config()
+    };
+    let result = minimize_batch(&[(0.0, 1.0)], &config, &InitialOnly(AtomicUsize::new(0))).unwrap();
+    assert_eq!(result.population_energies, [1.0, 2.0, 3.0, 4.0]);
+    assert_eq!(result.evaluations, 14);
+    assert_eq!(result.generations, 2);
+}

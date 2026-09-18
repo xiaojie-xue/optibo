@@ -1,5 +1,5 @@
 use super::domain::Domain;
-use super::operators::{initialize_latin_hypercube, initialize_random, trial_population};
+use super::operators::{initialize_latin_hypercube, initialize_random, trial_population_into};
 use super::rng::Rng;
 use super::{
     BatchObjective, Config, Control, DeError, DeResult, EvaluationError, Initialization, Mutation,
@@ -181,17 +181,38 @@ where
     if let Some(guess) = guess {
         population[0] = guess;
     }
-    let mut energies = evaluate(objective, &domain, &population)?;
+    // Keep evaluated physical coordinates alongside normalized search coordinates.
+    // Encoding a small seed inside very wide bounds need not round-trip exactly.
+    let dimension = domain.dimension();
+    let mut physical = vec![vec![0.0; dimension]; population.len()];
+    for (i, row) in physical.iter_mut().enumerate() {
+        if let Initialization::Population(rows) = &config.init {
+            for ((value, &input), &(lo, hi)) in row.iter_mut().zip(&rows[i]).zip(bounds) {
+                *value = input.clamp(lo, hi);
+            }
+        } else {
+            domain.decode_into(&population[i], row);
+        }
+    }
+    if let Some(guess) = &config.initial_guess {
+        physical[0].copy_from_slice(guess);
+    }
+    let mut candidates: Vec<f64> = physical.iter().flatten().copied().collect();
+    let mut energies = vec![f64::NAN; population.len()];
+    evaluate(objective, dimension, &candidates, &mut energies)?;
     if !energies.iter().any(|cost| cost.is_finite()) {
         return Err(DeError::NoFiniteObjective);
     }
     let mut evaluations = energies.len();
     let mut generations = 0;
+    let trial_capacity = population.len().min(config.max_evaluations - evaluations);
+    let mut trials = vec![vec![0.0; domain.free_dimension()]; trial_capacity];
+    let mut trial_energies = vec![f64::NAN; trial_capacity];
     let termination = loop {
         let best = best_index(&energies);
-        let x = domain.decode(&population[best]);
+        let x = &physical[best];
         if callback(&Progress {
-            x: &x,
+            x,
             fun: energies[best],
             generations,
             evaluations,
@@ -212,22 +233,37 @@ where
             Mutation::Fixed(value) => value,
             Mutation::Dither { min, max } => dither(min, max, rng.uniform()),
         };
-        let trials = trial_population(
+        let count = population.len().min(config.max_evaluations - evaluations);
+        trial_population_into(
             &population,
             best,
             config.strategy,
             mutation,
             config.crossover,
             &mut rng,
+            &mut trials[..count],
         );
-        let count = population.len().min(config.max_evaluations - evaluations);
-        let trial_energies = evaluate(objective, &domain, &trials[..count])?;
+        candidates.resize(count * dimension, 0.0);
+        for (trial, row) in trials[..count]
+            .iter()
+            .zip(candidates.chunks_exact_mut(dimension))
+        {
+            domain.decode_into(trial, row);
+        }
+        evaluate(
+            objective,
+            dimension,
+            &candidates,
+            &mut trial_energies[..count],
+        )?;
         evaluations += count;
         // All trial vectors came from the unchanged old generation. An accepted
         // improvement cannot influence another candidate until the next generation.
-        for (i, (trial, energy)) in trials.into_iter().zip(trial_energies).enumerate() {
+        for i in 0..count {
+            let energy = trial_energies[i];
             if energy.is_finite() && energy <= energies[i] {
-                population[i] = trial;
+                std::mem::swap(&mut population[i], &mut trials[i]);
+                physical[i].copy_from_slice(&candidates[i * dimension..(i + 1) * dimension]);
                 energies[i] = energy;
             }
         }
@@ -237,9 +273,9 @@ where
     };
     let best = best_index(&energies);
     Ok(DeResult {
-        x: domain.decode(&population[best]),
+        x: physical[best].clone(),
         fun: energies[best],
-        population: population.iter().map(|z| domain.decode(z)).collect(),
+        population: physical,
         population_energies: energies,
         generations,
         evaluations,
@@ -274,18 +310,18 @@ fn validate(config: &Config) -> Result<(), DeError> {
 
 fn evaluate<B: BatchObjective + ?Sized>(
     objective: &B,
-    domain: &Domain,
-    population: &[Vec<f64>],
-) -> Result<Vec<f64>, DeError> {
-    let candidates: Vec<_> = population.iter().flat_map(|z| domain.decode(z)).collect();
-    let mut costs = vec![f64::NAN; population.len()];
-    objective.evaluate_batch(&candidates, domain.dimension(), &mut costs)?;
-    for cost in &mut costs {
+    dimension: usize,
+    candidates: &[f64],
+    costs: &mut [f64],
+) -> Result<(), DeError> {
+    costs.fill(f64::NAN);
+    objective.evaluate_batch(candidates, dimension, costs)?;
+    for cost in costs {
         if !cost.is_finite() {
             *cost = f64::INFINITY;
         }
     }
-    Ok(costs)
+    Ok(())
 }
 
 fn best_index(energies: &[f64]) -> usize {

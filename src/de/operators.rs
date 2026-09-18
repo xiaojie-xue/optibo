@@ -30,9 +30,49 @@ fn stratified_coordinate(stratum: usize, size: usize, jitter: f64) -> f64 {
     value.min(f64::from_bits(upper.to_bits() - 1))
 }
 
-/// Build every candidate from the same immutable generation. The caller does
-/// objective evaluation and selection only after this function has returned.
-pub(crate) fn trial_population(
+/// Fill a prefix of trial candidates from the unchanged parent generation.
+/// Donors always come from the full population, even for a partial generation.
+pub(crate) fn trial_population_into(
+    population: &[Vec<f64>],
+    best_index: usize,
+    strategy: Strategy,
+    mutation: f64,
+    crossover: f64,
+    rng: &mut Rng,
+    trials: &mut [Vec<f64>],
+) {
+    debug_assert!(trials.len() <= population.len());
+    if population.is_empty() || population[0].is_empty() {
+        return;
+    }
+    let dim = population[0].len();
+    debug_assert!(best_index < population.len());
+    debug_assert!(population.iter().all(|row| row.len() == dim));
+    debug_assert!(mutation.is_finite());
+    debug_assert!((0.0..=1.0).contains(&crossover));
+    let count = match strategy {
+        Strategy::Best1Bin => 2,
+        Strategy::Rand1Bin => 3,
+    };
+    for (target, trial) in trials.iter_mut().enumerate() {
+        debug_assert_eq!(trial.len(), dim);
+        let donors = donor_indices(population.len(), target, count, rng);
+        let forced = rng.index(dim);
+        for (coordinate, output) in trial.iter_mut().enumerate() {
+            let value = if rng.uniform() < crossover || coordinate == forced {
+                mutant_coordinate(
+                    population, best_index, strategy, mutation, &donors, coordinate,
+                )
+            } else {
+                population[target][coordinate]
+            };
+            *output = repair(value, rng);
+        }
+    }
+}
+
+#[cfg(test)]
+fn trial_population(
     population: &[Vec<f64>],
     best_index: usize,
     strategy: Strategy,
@@ -40,31 +80,17 @@ pub(crate) fn trial_population(
     crossover: f64,
     rng: &mut Rng,
 ) -> Vec<Vec<f64>> {
-    if population.is_empty() || population[0].is_empty() {
-        return population.to_vec();
-    }
-    let dim = population[0].len();
-    debug_assert!(best_index < population.len());
-    debug_assert!(population.iter().all(|individual| individual.len() == dim));
-    debug_assert!(mutation.is_finite());
-    debug_assert!((0.0..=1.0).contains(&crossover));
-    let count = match strategy {
-        Strategy::Best1Bin => 2,
-        Strategy::Rand1Bin => 3,
-    };
-    (0..population.len())
-        .map(|target| {
-            let donors = donor_indices(population.len(), target, count, rng);
-            let mutant: Vec<_> = (0..dim)
-                .map(|coordinate| {
-                    mutant_coordinate(
-                        population, best_index, strategy, mutation, &donors, coordinate,
-                    )
-                })
-                .collect();
-            binomial_crossover(&population[target], &mutant, crossover, rng)
-        })
-        .collect()
+    let mut trials = population.to_vec();
+    trial_population_into(
+        population,
+        best_index,
+        strategy,
+        mutation,
+        crossover,
+        rng,
+        &mut trials,
+    );
+    trials
 }
 
 /// Draw an ordered sample without replacement, excluding the target individual.
@@ -99,6 +125,7 @@ fn mutant_coordinate(
         + mutation * (population[left][coordinate] - population[right][coordinate])
 }
 
+#[cfg(test)]
 fn binomial_crossover(target: &[f64], mutant: &[f64], crossover: f64, rng: &mut Rng) -> Vec<f64> {
     debug_assert_eq!(target.len(), mutant.len());
     let forced = rng.index(target.len());
@@ -130,6 +157,59 @@ fn repair(value: f64, rng: &mut Rng) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn buffered_trials_match_original_operators_and_partial_rng_prefix() {
+        let population = initialize_random(17, 9, &mut Rng::new(42));
+        for strategy in [Strategy::Best1Bin, Strategy::Rand1Bin] {
+            for crossover in [0.0, 0.7, 1.0] {
+                for count in [0, 1, 5, 17] {
+                    let mut reference = Rng::new(91);
+                    let expected: Vec<_> = (0..count)
+                        .map(|target| {
+                            let donors = donor_indices(
+                                population.len(),
+                                target,
+                                if strategy == Strategy::Best1Bin { 2 } else { 3 },
+                                &mut reference,
+                            );
+                            let mutant: Vec<_> = (0..9)
+                                .map(|coordinate| {
+                                    mutant_coordinate(
+                                        &population,
+                                        3,
+                                        strategy,
+                                        1.9,
+                                        &donors,
+                                        coordinate,
+                                    )
+                                })
+                                .collect();
+                            binomial_crossover(
+                                &population[target],
+                                &mutant,
+                                crossover,
+                                &mut reference,
+                            )
+                        })
+                        .collect();
+                    let mut actual_rng = Rng::new(91);
+                    let mut actual = vec![vec![0.0; 9]; count];
+                    trial_population_into(
+                        &population,
+                        3,
+                        strategy,
+                        1.9,
+                        crossover,
+                        &mut actual_rng,
+                        &mut actual,
+                    );
+                    assert_eq!(actual, expected);
+                    assert_eq!(actual_rng.next_u64(), reference.next_u64());
+                }
+            }
+        }
+    }
 
     #[test]
     fn random_initialization_has_correct_shape_bounds_and_reproducibility() {

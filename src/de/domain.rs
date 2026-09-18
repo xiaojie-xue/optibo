@@ -73,9 +73,19 @@ impl Domain {
             .collect())
     }
 
+    #[cfg(test)]
     pub(crate) fn decode(&self, z: &[f64]) -> Vec<f64> {
+        let mut x = vec![0.0; self.dimension()];
+        self.decode_into(z, &mut x);
+        x
+    }
+
+    pub(crate) fn decode_into(&self, z: &[f64], x: &mut [f64]) {
         debug_assert_eq!(z.len(), self.free.len());
-        let mut x: Vec<_> = self.bounds.iter().map(|&(lo, _)| lo).collect();
+        debug_assert_eq!(x.len(), self.dimension());
+        for (value, &(lo, _)) in x.iter_mut().zip(&self.bounds) {
+            *value = lo;
+        }
         for (&i, &value) in self.free.iter().zip(z) {
             let (lo, hi) = self.bounds[i];
             x[i] = if value <= 0.0 {
@@ -89,7 +99,6 @@ impl Domain {
                 ((1.0 - value) * lo + value * hi).clamp(lo, hi)
             };
         }
-        x
     }
 }
 
