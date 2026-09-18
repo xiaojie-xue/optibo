@@ -6,7 +6,35 @@ use super::{
     Progress, Termination,
 };
 
-/// Minimize a scalar objective. NaN and either infinity reject a candidate.
+/// Minimize a scalar cost within finite box bounds.
+///
+/// `bounds[i]` specifies the range of `objective`'s coordinate `x[i]`. Equal
+/// endpoints fix that coordinate. The objective returns a cost to minimize;
+/// NaN and either infinity reject that candidate. Captured data may be borrowed.
+/// The closure must be `Sync` even when evaluation is serial.
+///
+/// # Example
+///
+/// ```
+/// use optibo::de::{minimize, Config};
+/// let config = Config { seed: 42, atol: 1e-12, ..Config::default() };
+/// let result = minimize(&[(-5.0, 5.0); 2], &config, |x| {
+///     (x[0] - 1.0).powi(2) + (x[1] + 2.0).powi(2)
+/// })?;
+/// assert!(result.fun < 1e-8);
+/// # Ok::<(), optibo::de::DeError>(())
+/// ```
+///
+/// # Errors
+///
+/// Returns [`DeError`] for invalid bounds, configuration, or initial population,
+/// or if initialization produces no finite cost. Setting `config.parallel` without
+/// the `parallel` Cargo feature is an invalid configuration. Objective panics
+/// propagate. Budget exhaustion returns `Ok` with the best candidate; inspect
+/// [`DeResult::termination`] before accepting it.
+///
+/// Use [`minimize_with_callback`] for progress or [`minimize_fallible`] for
+/// evaluator failures that must abort the solve.
 pub fn minimize<F>(
     bounds: &[(f64, f64)],
     config: &Config,
@@ -18,7 +46,20 @@ where
     minimize_with_callback(bounds, config, objective, |_| Control::Continue)
 }
 
-/// Scalar minimization with cancellation/progress at batch boundaries.
+/// Minimize a scalar cost while reporting progress and allowing cancellation.
+///
+/// The `FnMut` callback runs after initialization and after each full or partial
+/// generation. It can update captured state. Return [`Control::Stop`] to keep
+/// the best candidate and finish with [`Termination::Cancelled`]. Cancellation
+/// cannot interrupt an objective call or a batch already being evaluated.
+///
+/// See the [callback example](index.html#progress-and-cancellation) and
+/// [`minimize`] for objective semantics.
+///
+/// # Errors
+///
+/// Returns the same input and initialization errors as [`minimize`]. Objective
+/// and callback panics propagate; requesting cancellation is not an error.
 pub fn minimize_with_callback<F, C>(
     bounds: &[(f64, f64)],
     config: &Config,
@@ -32,7 +73,19 @@ where
     minimize_fallible_with_callback(bounds, config, |x| Ok(objective(x)), callback)
 }
 
-/// Distinguishes an invalid candidate (nonfinite Ok value) from a fatal error.
+/// Minimize with an evaluator that can report a fatal failure.
+///
+/// Return `Ok(cost)` for an evaluated candidate. A nonfinite `Ok` value rejects
+/// only that candidate. Return `Err(EvaluationError)` when the solve cannot
+/// continue, such as a model evaluation service failing.
+/// See the [error handling example](index.html#invalid-candidates-versus-evaluation-failures).
+///
+/// # Errors
+///
+/// Returns the input and initialization errors described by [`minimize`], or
+/// [`DeError::Evaluation`] when the objective returns an error. No partial
+/// [`DeResult`] is returned on error. In parallel mode, other evaluations in
+/// the current batch may finish before the error is reported. Panics propagate.
 pub fn minimize_fallible<F>(
     bounds: &[(f64, f64)],
     config: &Config,
@@ -44,7 +97,16 @@ where
     minimize_fallible_with_callback(bounds, config, objective, |_| Control::Continue)
 }
 
-/// Fallible scalar evaluation with a progress/cancellation callback.
+/// Combine a fallible scalar evaluator with progress and cancellation.
+///
+/// Objective results follow [`minimize_fallible`]; callback timing and return
+/// values follow [`minimize_with_callback`]. An evaluator failure aborts the
+/// solve before the callback for that failed batch.
+///
+/// # Errors
+///
+/// Returns the same errors as [`minimize_fallible`]. Objective and callback
+/// panics propagate.
 pub fn minimize_fallible_with_callback<F, C>(
     bounds: &[(f64, f64)],
     config: &Config,
@@ -105,8 +167,18 @@ where
     }
 }
 
-/// Minimize using row-major, whole-batch evaluations. `config.parallel` is ignored:
-/// a batch implementation may use its own vectorization, threading, or device.
+/// Minimize using whole batches of row-major candidate vectors.
+///
+/// The evaluator writes one cost per candidate via [`BatchObjective`]. It may
+/// use its own vectorization, threading, or device; `config.parallel` is ignored
+/// and the `parallel` feature is not required. Batches can be smaller than the
+/// population. See the [complete implementation example](index.html#evaluate-a-population-in-batches).
+///
+/// # Errors
+///
+/// Returns [`DeError`] for invalid inputs, no finite initialization cost, or an
+/// [`EvaluationError`] from the batch evaluator. Unwritten costs start as NaN
+/// and reject their candidates. Evaluator panics propagate.
 pub fn minimize_batch<B: BatchObjective + ?Sized>(
     bounds: &[(f64, f64)],
     config: &Config,
@@ -115,8 +187,17 @@ pub fn minimize_batch<B: BatchObjective + ?Sized>(
     minimize_batch_with_callback(bounds, config, objective, |_| Control::Continue)
 }
 
-/// Batch minimization with cancellation/progress at evaluation boundaries.
-/// A callback stop takes precedence over convergence and budget termination.
+/// Minimize in batches while reporting progress and allowing cancellation.
+///
+/// Batch layout and execution follow [`minimize_batch`]. Callback timing follows
+/// [`minimize_with_callback`]: after initialization and each full or partial
+/// generation. A callback stop takes precedence over convergence and budget
+/// termination; already running batches cannot be interrupted.
+///
+/// # Errors
+///
+/// Returns the same errors as [`minimize_batch`]. A failed batch aborts before
+/// its callback. Evaluator and callback panics propagate.
 pub fn minimize_batch_with_callback<B, C>(
     bounds: &[(f64, f64)],
     config: &Config,

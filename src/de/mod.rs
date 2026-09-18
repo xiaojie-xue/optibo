@@ -53,6 +53,163 @@
 //! # Ok::<(), optibo::de::DeError>(())
 //! ```
 
+//! # Configure a run
+//!
+//! Start with [`Config::default()`](crate::de::Config::default), set finite bounds based on the model, choose
+//! an explicit evaluation budget, and set `seed` to reproduce an experiment.
+//! The full defaults are listed on [`Config`](crate::de::Config).
+//!
+//! - **Population and budget:** `population_size` is the total candidate count, not
+//!   a multiplier of dimension. With population size `P`, initialization costs `P`
+//!   evaluations and each full generation costs another `P`. For example, `P = 40`
+//!   and `max_evaluations = 4_000` allow initialization plus at most 99 full
+//!   generations. Early convergence or cancellation can reduce this count.
+//!   Increasing the population increases coverage and cost per generation.
+//! - **Stopping tolerances:** convergence requires all costs to be finite and
+//!   `std(costs) <= atol + tol * abs(mean(costs))`, using population standard
+//!   deviation. `atol` has the same units as your cost. Near a zero minimum, the
+//!   relative term shrinks, so choose an absolute tolerance that reflects the
+//!   useful precision of your objective. Neither tolerance is a coordinate tolerance.
+//! - **Exploration:** [`Mutation::Dither`](crate::de::Mutation::Dither) varies the differential weight once per
+//!   generation. `crossover` controls how many donor coordinates are used, with at
+//!   least one free coordinate forced. Start with the defaults before changing
+//!   strategy or these parameters.
+//! - **Initialization:** the default Latin hypercube samples across each free
+//!   coordinate's range. Set `initial_guess` to include a known feasible point, or
+//!   use [`Initialization::Population`](crate::de::Initialization::Population) to supply the whole population. A guess
+//!   replaces the first member, so its evaluation is included in the normal budget.
+//!
+//! ## Bounds and fixed parameters
+//!
+//! Bounds must be nonempty, finite, and ordered `lower <= upper`. Objectives always
+//! receive the full vector in physical units, including fixed coordinates:
+//!
+//! ```
+//! use optibo::de::{minimize, Config};
+//!
+//! let result = minimize(&[(-5.0, 5.0), (2.0, 2.0)], &Config::default(), |x| {
+//!     assert_eq!(x[1], 2.0);
+//!     (x[0] - 1.0).powi(2) + x[1].powi(2)
+//! })?;
+//! assert_eq!(result.x[1], 2.0);
+//! # Ok::<(), optibo::de::DeError>(())
+//! ```
+//!
+//! If every coordinate is fixed, only one candidate is evaluated. Configuration
+//! and any supplied initial population are still validated. Custom population rows
+//! must be finite and have the full dimension; out-of-bounds values are clipped.
+//! An `initial_guess` must already be within bounds and is not clipped.
+//!
+//! # Understand termination
+//!
+//! A returned [`DeResult`](crate::de::DeResult) contains the best candidate even on cancellation or
+//! budget exhaustion. An `Err` indicates invalid input or an evaluation failure
+//! and does not contain a partial result.
+//!
+//! | Termination | Meaning and next step |
+//! | --- | --- |
+//! | [`Termination::Converged`](crate::de::Termination::Converged) | Population cost dispersion met the tolerance, or all coordinates were fixed. Check fit quality separately. |
+//! | [`Termination::MaxEvaluations`](crate::de::Termination::MaxEvaluations) | Candidate budget exhausted. Inspect the best result before spending more evaluations. |
+//! | [`Termination::MaxGenerations`](crate::de::Termination::MaxGenerations) | Generation limit reached. Inspect progress and consider another seed or a larger budget. |
+//! | [`Termination::Cancelled`](crate::de::Termination::Cancelled) | Your callback requested a stop. The best evaluated candidate is retained. |
+//!
+//! Checks run after initialization and each full or partial generation in this
+//! order: callback, convergence, evaluation budget, generation limit. A callback
+//! stop therefore wins over convergence. A final partial generation evaluates a
+//! prefix of the population, counts its evaluations, and does not increment
+//! `generations`. Setting `max_generations = 0` still evaluates initialization.
+//!
+//! # Invalid candidates versus evaluation failures
+//!
+//! Return a nonfinite cost (`NaN`, positive infinity, or negative infinity) to reject
+//! an individual candidate. If initialization has no finite cost, the solve returns
+//! [`DeError::NoFiniteObjective`](crate::de::DeError::NoFiniteObjective). Invalid candidates still consume evaluation budget.
+//!
+//! Use [`minimize_fallible`](crate::de::minimize_fallible) when the evaluator itself can fail. An
+//! [`EvaluationError`](crate::de::EvaluationError) aborts the solve as [`DeError::Evaluation`](crate::de::DeError::Evaluation); it is not treated
+//! as a poor candidate. Objective panics propagate.
+//!
+//! ```
+//! use optibo::de::{minimize_fallible, Config, EvaluationError};
+//!
+//! fn model(x: &[f64]) -> Result<f64, EvaluationError> {
+//!     if x[0] <= 0.0 {
+//!         return Ok(f64::INFINITY); // outside this model's domain
+//!     }
+//!     Ok((x[0].ln() - 1.0).powi(2))
+//!     // A failed external evaluator would return Err(EvaluationError::new(...)).
+//! }
+//!
+//! let result = minimize_fallible(&[(0.1, 10.0)], &Config::default(), model)?;
+//! assert!(result.fun.is_finite());
+//! # Ok::<(), optibo::de::DeError>(())
+//! ```
+//!
+//! # Parallel evaluation
+//!
+//! Enable Cargo feature `parallel` and set [`Config::parallel`](crate::de::Config::parallel) to `true`:
+//!
+//! ```
+//! # #[cfg(feature = "parallel")]
+//! # {
+//! use optibo::de::{minimize, Config};
+//!
+//! let config = Config { parallel: true, seed: 42, ..Config::default() };
+//! let result = minimize(&[(-5.0, 5.0); 3], &config, |x| {
+//!     x.iter().map(|v| v * v).sum()
+//! })?;
+//! assert!(result.fun.is_finite());
+//! # }
+//! # Ok::<(), optibo::de::DeError>(())
+//! ```
+//!
+//! This uses Rayon's current thread pool. Scalar closures require `Sync` even for
+//! serial runs. Captured immutable data is suitable; call-order-dependent state can
+//! break reproducibility. Random draws and population updates remain serial, so
+//! serial and parallel runs use the same search trajectory for the same deterministic
+//! objective and configuration. Parallel scheduling can cost more than it saves for
+//! cheap objectives; measure using your actual model.
+//!
+//! Callbacks run after evaluation, never inside an individual objective call.
+//! Cancellation cannot interrupt a running batch. A parallel batch may finish other
+//! candidate evaluations before reporting an evaluator error.
+//!
+//! # Evaluate a population in batches
+//!
+//! Implement [`BatchObjective`](crate::de::BatchObjective) to use a vectorized model, a device, or an existing
+//! batch service. The input is flattened row-major: for two dimensions,
+//! `[x0, y0, x1, y1, ...]`. Write one cost per candidate, in matching order.
+//!
+//! ```
+//! use optibo::de::{minimize_batch, BatchObjective, Config, EvaluationError};
+//!
+//! struct Sphere;
+//! impl BatchObjective for Sphere {
+//!     fn evaluate_batch(
+//!         &self,
+//!         candidates: &[f64],
+//!         dimension: usize,
+//!         costs: &mut [f64],
+//!     ) -> Result<(), EvaluationError> {
+//!         for (x, cost) in candidates.chunks_exact(dimension).zip(costs.iter_mut()) {
+//!             *cost = x.iter().map(|v| v * v).sum();
+//!         }
+//!         Ok(())
+//!     }
+//! }
+//!
+//! let config = Config { seed: 42, atol: 1e-12, ..Config::default() };
+//! let result = minimize_batch(&[(-5.0, 5.0); 2], &config, &Sphere)?;
+//! assert!(result.fun < 1e-8);
+//! # Ok::<(), optibo::de::DeError>(())
+//! ```
+//!
+//! Do not assume every call contains `population_size` candidates: a final partial
+//! generation or an all-fixed problem can be smaller. `candidates.len()` equals
+//! `dimension * costs.len()`. Outputs start as `NaN`; unwritten outputs reject their
+//! candidates. `Config::parallel` has no effect here; the implementation controls
+//! its own threading. Evaluation counts measure candidates, not batch calls.
+
 mod domain;
 mod operators;
 mod rng;
@@ -104,6 +261,37 @@ pub enum Initialization {
 
 /// Validated before any objective evaluation. Defaults use seed 0, LHS, and
 /// serial evaluation. No implicit local polishing or constraint penalties occur.
+///
+/// # Defaults
+///
+/// | Field | Default |
+/// | --- | --- |
+/// | `strategy` | [`Strategy::Best1Bin`] |
+/// | `population_size` | `40` |
+/// | `max_generations` | `1000` |
+/// | `max_evaluations` | `usize::MAX` |
+/// | `mutation` | `Dither { min: 0.5, max: 1.0 }` |
+/// | `crossover` | `0.7` |
+/// | `tol` / `atol` | `0.01` / `0.0` |
+/// | `seed` | `0` |
+/// | `init` | [`Initialization::LatinHypercube`] |
+/// | `initial_guess` | `None` |
+/// | `parallel` | `false` |
+///
+/// Use struct update syntax to override only the fields you need:
+///
+/// ```
+/// use optibo::de::Config;
+/// let config = Config {
+///     seed: 42,
+///     max_evaluations: 4_000,
+///     atol: 1e-10,
+///     ..Config::default()
+/// };
+/// ```
+///
+/// See the [configuration guide](index.html#configure-a-run) for budget accounting
+/// and the meaning of tolerances.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     /// Mutation strategy. Defaults to [`Strategy::Best1Bin`].
