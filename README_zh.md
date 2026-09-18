@@ -26,9 +26,8 @@ Optibo 是一组持续扩展的 Rust 优化库。目前的 Differential Evolutio
 
 在 `Cargo.toml` 中添加 crates.io 依赖，默认启用差分进化算法：
 
-```toml
-[dependencies]
-optibo = "0.1.1"
+```bash
+cargo add optibo
 ```
 
 ```rust
@@ -72,9 +71,8 @@ fn main() -> Result<(), optibo::de::DeError> {
 
 1. 在依赖中启用 `parallel`，它会同时启用 `de`：
 
-   ```toml
-   [dependencies]
-   optibo = { version = "0.1.1", features = ["parallel"] }
+   ```bash
+   cargo add optibo --features parallel
    ```
 
 2. 求解时设置 `Config::parallel = true`：

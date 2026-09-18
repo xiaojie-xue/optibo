@@ -28,9 +28,8 @@ algorithms to support additional capabilities and applications beyond robot cali
 
 Add Optibo from crates.io to your `Cargo.toml`. Differential evolution is enabled by default:
 
-```toml
-[dependencies]
-optibo = "0.1.1"
+```bash
+cargo add optibo
 ```
 
 ```rust
@@ -76,9 +75,8 @@ Parallel evaluation requires two steps:
 
 1. Enable `parallel` in the dependency, which also enables `de`:
 
-   ```toml
-   [dependencies]
-   optibo = { version = "0.1.1", features = ["parallel"] }
+   ```bash
+   cargo add optibo --features parallel
    ```
 
 2. Set `Config::parallel = true` when configuring the solver:
