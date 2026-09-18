@@ -22,7 +22,3 @@ rayon = { version = "1.12", optional = true }
 
 [lints.rust]
 unsafe_code = "forbid"
-
-[[example]]
-name = "planar_calibration"
-required-features = ["de"]

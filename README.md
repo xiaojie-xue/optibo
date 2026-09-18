@@ -1,15 +1,36 @@
-# Optibo
+<!-- markdownlint-disable MD033 MD041 -->
 
-一个通过 Cargo feature 选择算法的 Rust 优化库。目前提供差分进化模块 `optibo::de`。
-整个项目只有一个 crate：`optibo`。
+<div align="center">
 
-## 使用
+<h1>Optibo</h1>
 
-从外部项目使用本地路径依赖（将路径替换为实际 checkout 位置）：
+<p><strong>A family of optimization libraries for Rust</strong></p>
+
+<p>
+  <strong>English</strong> | <a href="README_zh.md">简体中文</a>
+</p>
+
+<p>
+  <a href="https://github.com/xiaojie-xue/optibo/actions/workflows/rust.yml"><img alt="CI" src="https://github.com/xiaojie-xue/optibo/actions/workflows/rust.yml/badge.svg?branch=main"></a>
+  <a href="https://crates.io/crates/optibo"><img alt="crates.io" src="https://img.shields.io/crates/v/optibo.svg?color=CE422B&amp;logo=rust&amp;logoColor=white"></a>
+  <a href="https://github.com/xiaojie-xue/optibo/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
+
+</div>
+
+Optibo is a growing family of optimization libraries for Rust. Its current
+Differential Evolution implementation supports
+[Calibo](https://github.com/xiaojie-xue/calibo), a robot calibration tool, by fitting
+model parameters to identify data. Future development will add other optimization
+algorithms to support additional capabilities and applications beyond robot calibration.
+
+## Quick start
+
+Add Optibo from crates.io to your `Cargo.toml`. Differential evolution is enabled by default:
 
 ```toml
 [dependencies]
-optibo = { path = "/path/to/optibo", default-features = false, features = ["de"] }
+optibo = "0.1.0"
 ```
 
 ```rust
@@ -25,30 +46,77 @@ fn main() -> Result<(), optibo::de::DeError> {
 }
 ```
 
-## Features 与 unsafe
+## Features
 
-| Feature | 含义 |
-| --- | --- |
-| `de` | 差分进化，默认启用；没有第三方依赖 |
-| `parallel` | 显式启用 Rayon 并行能力，同时启用 `de`；运行时设置 `Config::parallel = true` |
-| 无 feature | 编译库外壳，不包含 DE 模块或第三方依赖 |
+### Differential Evolution: `de`
 
-没有 `unsafe` feature，也没有自有 `unsafe` 实现。库根使用 `#![forbid(unsafe_code)]`，
-Cargo lint 同时禁止示例与测试引入 unsafe。该限制不约束第三方依赖和 Rust 标准库内部；
-启用可选 `parallel` 后，Rayon/Crossbeam 等依赖内部存在 unsafe。
+The only optimization algorithm feature currently available is `de`, which provides
+**differential evolution (DE)** through `optibo::de`. DE searches for parameters that
+minimize an objective within specified bounds, using a population of candidate solutions.
+It requires no gradients and is useful for nonlinear parameter estimation, including
+minimizing the error between a robot model's predictions and calibration measurements.
 
-## 文档与验证
+The implementation supports:
 
-- [差分进化算法、接口与 SciPy 差异](docs/differential-evolution.md)
-- [合成机械臂零偏标定示例](examples/planar_calibration.rs)
+- `best1bin` and `rand1bin` strategies, with seeded runs for reproducibility.
+- Parameter bounds and fixed parameters, with configurable evaluation and generation limits.
+- Scalar and batch objectives, plus progress callbacks and cancellation.
+- Optional parallel scalar evaluation through the `parallel` feature.
+
+`de` enables differential evolution. It is enabled by default, runs serially by
+default, and adds no third-party dependencies. The quick start above uses this configuration.
+
+### Optional acceleration: `parallel`
+
+When individual objective evaluations are expensive, enable `parallel` to use
+Rayon to evaluate multiple candidates across CPU threads. This accelerates
+differential evolution; it does not add another optimization algorithm.
+
+Parallel evaluation requires two steps:
+
+1. Enable `parallel` in the dependency, which also enables `de`:
+
+   ```toml
+   [dependencies]
+   optibo = { version = "0.1.0", features = ["parallel"] }
+   ```
+
+2. Set `Config::parallel = true` when configuring the solver:
+
+   ```rust
+   let config = Config {
+       parallel: true,
+       ..Config::default()
+   };
+   ```
+
+Enabling the Cargo feature alone leaves evaluation serial by default. This option
+only affects scalar objectives; batch objectives manage their own parallelism.
+For inexpensive objectives, scheduling overhead may outweigh the benefit.
+
+The project's Rust code forbids `unsafe`; optional dependencies such as Rayon may
+use unsafe code internally.
+
+## Documentation
+
+- [API documentation on docs.rs](https://docs.rs/optibo) (available after the first crates.io release and successful documentation build)
+
+Build and open the API documentation locally with `cargo doc --all-features --no-deps --open`.
+The docs.rs build includes all features.
+
+## Development and validation
 
 ```bash
 cargo test --locked
 cargo test --no-default-features --locked
 cargo test --no-default-features --features de --locked
 cargo test --all-features --locked
-cargo run --release --example planar_calibration --features de
 ```
 
-测试覆盖算法算子、数值边界、错误处理、可复现性、串并行一致性、SciPy 确定性对照和
-合成标定问题。GitHub Actions 检查各 feature 组合、格式与 Clippy。
+Tests cover algorithm operators, numerical edge cases, error handling, reproducibility,
+serial/parallel consistency, deterministic comparisons with SciPy, and a synthetic calibration problem.
+GitHub Actions checks feature combinations, formatting, and Clippy.
+
+## License
+
+Licensed under the [MIT License](LICENSE).
